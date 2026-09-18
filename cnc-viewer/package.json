@@ -1,0 +1,1 @@
+{"name":"cnc-path-viewer","version":"0.1.0","private":true,"scripts":{"start":"node server.cjs","test":"node --test parser.test.cjs"}}
