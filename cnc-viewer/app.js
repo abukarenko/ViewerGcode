@@ -50,12 +50,11 @@ M30`;
   let model,selected=-1,filename='demo.nc',view='iso',yaw=-.65,pitch=.88,scale=1,pan=[0,0],center=[0,0,0],playing=false,last=0,dirty=false,drag=null;
   function emit(type,payload){const message={type,...payload};window.dispatchEvent(new CustomEvent('cnc:'+type,{detail:message}));window.chrome?.webview?.postMessage(message);}
   function pause(){playing=false;$('play').textContent='▶';$('play').setAttribute('aria-label','Воспроизвести');}
-  function lineNumbers(){const n=$('editor').value.split('\n').length;if($('numbers').children.length!==n)$('numbers').replaceChildren(...Array.from({length:n},(_,i)=>{const el=document.createElement('div');el.textContent=i+1;return el;}));$('lineCount').textContent=n+' строк';syncScroll();}
+  function lineNumbers(){const n=$('editor').value.split('\n').length;if($('numbers').children.length!==n){const fragment=document.createDocumentFragment();for(let i=0;i<n;i++){const el=document.createElement('div');el.textContent=i+1;fragment.append(el);}$('numbers').replaceChildren(fragment);}$('lineCount').textContent=n+' строк';syncScroll();}
   function syncScroll(){$('numbers').scrollTop=$('editor').scrollTop;}
   function load(source,name='program.nc'){
     if(window.grblController?.busy)throw new Error('Дождитесь завершения отправки на станок');
     if(typeof source!=='string')throw new TypeError('source must be a string');
-    if(source.length>2e6||source.split('\n').length>50000)throw new Error('Лимит: 2 МБ или 50 000 строк.');
     pause();$('editor').value=source;filename=String(name);$('filename').textContent=filename;lineNumbers();process();window.SmartEditor?.reset();return model;
   }
   function process(){pause();dirty=false;model=GCode.parse($('editor').value,{ignoreUnsupported:$('ignoreUnsupported').checked});$('scrub').max=Math.max(0,model.segments.length-1);$('scrub').disabled=!model.segments.length;
@@ -87,7 +86,7 @@ M30`;
   function selectLine(line){if(!Number.isInteger(line)||line<1)throw new Error('line must be a positive integer');pause();let index=-1;model.segments.forEach((s,i)=>{if(s.line<=line)index=i;});if(index>=0)setFrame(index);return index;}
   $('ignoreUnsupported').onchange=()=>{lineNumbers();process();};
   $('process').onclick=()=>{lineNumbers();process();};$('demo').onclick=()=>load(demo,'demo.nc');$('open').onclick=()=>$('file').click();
-  async function readFile(file){if(!file)return;if(file.size>2e6){alert('Лимит размера файла — 2 МБ.');return;}try{const decoded=GCodeEncoding.decode(await file.arrayBuffer());load(decoded.text,file.name);$('filename').title=`${file.name} · ${decoded.encoding}`;$('footerState').textContent+=` · ${decoded.encoding}`;}catch(e){alert(e.message);}}
+  async function readFile(file){if(!file)return;try{const decoded=GCodeEncoding.decode(await file.arrayBuffer());load(decoded.text,file.name);$('filename').title=`${file.name} · ${decoded.encoding}`;$('footerState').textContent+=` · ${decoded.encoding}`;}catch(e){alert(e.message);}}
   $('file').onchange=async e=>{await readFile(e.target.files[0]);e.target.value='';};
   $('save').onclick=()=>{const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([$ ('editor').value],{type:'text/plain;charset=utf-8'}));a.download=filename;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);};
   $('editor').onscroll=syncScroll;$('editor').oninput=()=>{dirty=true;pause();lineNumbers();$('footerState').textContent='Изменено — нажмите «Построить»';$('statusBadge').textContent='НЕ ПЕРЕСТРОЕНО';};
@@ -103,5 +102,5 @@ M30`;
   new ResizeObserver(draw).observe(canvas);
   window.CNCViewer={setDevicePosition,setLiveTool,load,selectLine,setView,fit,getState:()=>({filename,selectedLine:model.segments[selected]?.line??null,dirty,complete:model.complete,diagnostics:model.diagnostics.map(d=>({...d})),segments:model.segments.length})};
   window.chrome?.webview?.addEventListener('message',e=>{try{const m=e.data;if(m?.type==='load')load(m.source,m.name);else if(m?.type==='selectLine')selectLine(m.line);else if(m?.type==='setView')setView(m.view);else if(m?.type==='fit')fit();else throw new Error('Unknown message type');}catch(error){emit('error',{message:error.message});}});
-  load(demo);emit('ready',{version:'0.2.0'});
+  load(demo);emit('ready',{version:'0.3.0'});
 })();
