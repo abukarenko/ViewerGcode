@@ -2,6 +2,19 @@
 (() => {
   'use strict';
   const $=id=>document.getElementById(id),canvas=$('canvas'),ctx=canvas.getContext('2d');
+  const toolCanvas=document.createElement('canvas');toolCanvas.className='tool-overlay';toolCanvas.setAttribute('aria-hidden','true');$('viewport').append(toolCanvas);const toolCtx=toolCanvas.getContext('2d');
+  let liveTool=false,devicePosition=null;
+  function setDevicePosition(position){devicePosition=Array.isArray(position)&&position.length===3&&position.every(Number.isFinite)?position.slice():null;if(liveTool)drawTool();}
+  function setLiveTool(active){if(liveTool===active)return;liveTool=active;if(active)pause();drawTool();}
+  function drawTool(){
+    const dpr=window.devicePixelRatio||1,w=canvas.clientWidth,h=canvas.clientHeight;
+    if(toolCanvas.width!==Math.round(w*dpr)||toolCanvas.height!==Math.round(h*dpr)){toolCanvas.width=Math.round(w*dpr);toolCanvas.height=Math.round(h*dpr);}
+    toolCtx.setTransform(dpr,0,0,dpr,0,0);toolCtx.clearRect(0,0,w,h);
+    const p=liveTool?devicePosition:model?.segments[selected]?.end;
+    $('positionSource').textContent=liveTool?(p?'Устройство · рабочие координаты · мм':'Устройство · ожидание координат / WCO'):'Координаты программы · мм';
+    'xyz'.split('').forEach((id,i)=>$(id).textContent=p?p[i].toFixed(3):'—');
+    if(!p)return;const q=project(p);toolCtx.beginPath();toolCtx.arc(...q,11,0,Math.PI*2);toolCtx.fillStyle='#ffce7325';toolCtx.fill();toolCtx.beginPath();toolCtx.arc(...q,4,0,Math.PI*2);toolCtx.fillStyle='#ffe5b2';toolCtx.fill();toolCtx.strokeStyle='#111925';toolCtx.lineWidth=1;toolCtx.stroke();
+  }
   const demo=`(CNC PATH VIEWER - DEMO)
 (Rounded pocket / millimetres)
 G21 G90 G17 G91.1
@@ -40,6 +53,7 @@ M30`;
   function lineNumbers(){const n=$('editor').value.split('\n').length;$('numbers').replaceChildren(...Array.from({length:n},(_,i)=>{const el=document.createElement('div');el.textContent=i+1;return el;}));$('lineCount').textContent=n+' строк';syncScroll();}
   function syncScroll(){$('numbers').scrollTop=$('editor').scrollTop;}
   function load(source,name='program.nc'){
+    if(window.grblController?.busy)throw new Error('Дождитесь завершения отправки на станок');
     if(typeof source!=='string')throw new TypeError('source must be a string');
     if(source.length>2e6||source.split('\n').length>50000)throw new Error('Лимит: 2 МБ или 50 000 строк.');
     pause();$('editor').value=source;filename=String(name);$('filename').textContent=filename;lineNumbers();process();return model;
@@ -53,7 +67,7 @@ M30`;
     setFrame(model.segments.length?0:-1);fit();emit('loaded',{name:filename,segments:model.segments.length,complete:model.complete,diagnostics:model.diagnostics});
   }
   function focusLine(line){const lines=$('editor').value.split('\n');const start=lines.slice(0,line-1).reduce((n,s)=>n+s.length+1,0);$('editor').focus();$('editor').setSelectionRange(start,start+(lines[line-1]?.length||0));$('editor').scrollTop=Math.max(0,(line-4)*24);syncScroll();}
-  function setFrame(index){selected=model?.segments.length?Math.max(0,Math.min(model.segments.length-1,Math.trunc(index))):-1;const seg=model?.segments[selected];$('scrub').value=Math.max(0,selected);$('frame').textContent=seg?`Кадр ${selected+1} / ${model.segments.length} · строка ${seg.line}`:'Нет перемещений';$('command').textContent=seg?`G${seg.type}  F${seg.feed.toFixed(0)}`:'—';
+  function setFrame(index){if(!window.grblController?.busy)liveTool=false;selected=model?.segments.length?Math.max(0,Math.min(model.segments.length-1,Math.trunc(index))):-1;const seg=model?.segments[selected];$('scrub').value=Math.max(0,selected);$('frame').textContent=seg?`Кадр ${selected+1} / ${model.segments.length} · строка ${seg.line}`:'Нет перемещений';$('command').textContent=seg?`G${seg.type}  F${seg.feed.toFixed(0)}`:'—';
     (seg?.end||[0,0,0]).forEach((v,i)=>$(('xyz')[i]).textContent=v.toFixed(3));$('numbers').querySelector('.selected')?.classList.remove('selected');if(seg)$('numbers').children[seg.line-1]?.classList.add('selected');draw();if(seg)emit('selection',{line:seg.line,index:selected,position:{x:seg.end[0],y:seg.end[1],z:seg.end[2]}});
   }
   function rotate(p){const [x,y,z]=p.map((v,i)=>v-center[i]);if(view==='xy')return[x,-y];if(view==='xz')return[x,-z];if(view==='yz')return[y,-z];const a=x*Math.cos(yaw)-y*Math.sin(yaw),b=x*Math.sin(yaw)+y*Math.cos(yaw);return[a,-b*Math.cos(pitch)-z*Math.sin(pitch)];}
@@ -67,7 +81,7 @@ M30`;
     const extent=Math.max(10,...model.bounds.max.map((v,i)=>v-model.bounds.min[i]))*.25;
     [[0,'#eb7b83','X'],[1,'#79bd8e','Y'],[2,'#7ca8ff','Z']].forEach(([i,color,label])=>{const p=[0,0,0];p[i]=extent;path([[0,0,0],p],color,1);const q=project(p);ctx.font='12px Consolas';ctx.fillStyle=color;ctx.fillText(label,q[0]+5,q[1]-5);});
     model.segments.forEach((s,i)=>{if(s.type===0&&!$('rapid').checked)return;path(s.points,i<=selected?'#87919e':s.type===0?'#647b9e':'#45debb',i===selected?3:s.type===0?1:1.7,s.type===0?[5,5]:[]);});
-    const p=model.segments[selected]?.end;if(p){const q=project(p);ctx.beginPath();ctx.arc(...q,11,0,Math.PI*2);ctx.fillStyle='#ffce7325';ctx.fill();ctx.beginPath();ctx.arc(...q,4,0,Math.PI*2);ctx.fillStyle='#ffe5b2';ctx.fill();ctx.strokeStyle='#111925';ctx.lineWidth=1;ctx.stroke();}
+    drawTool();
   }
   function setView(value){if(!['iso','xy','xz','yz'].includes(value))throw new Error('Unknown view');view=value;document.querySelectorAll('[data-view]').forEach(b=>b.classList.toggle('active',b.dataset.view===view));$('viewName').textContent=({iso:'ИЗОМЕТРИЯ',xy:'ВИД СВЕРХУ · XY',xz:'ВИД СПЕРЕДИ · XZ',yz:'ВИД СБОКУ · YZ'})[view];fit();}
   function selectLine(line){if(!Number.isInteger(line)||line<1)throw new Error('line must be a positive integer');pause();let index=-1;model.segments.forEach((s,i)=>{if(s.line<=line)index=i;});if(index>=0)setFrame(index);return index;}
@@ -87,7 +101,7 @@ M30`;
   canvas.addEventListener('wheel',e=>{e.preventDefault();scale=Math.max(.00001,Math.min(1e5,scale*Math.exp(-e.deltaY*.001)));draw();},{passive:false});canvas.ondblclick=fit;
   document.addEventListener('dragover',e=>{e.preventDefault();document.body.classList.add('dragging');});document.addEventListener('dragleave',e=>{if(!e.relatedTarget)document.body.classList.remove('dragging');});document.addEventListener('drop',e=>{e.preventDefault();document.body.classList.remove('dragging');readFile(e.dataTransfer.files[0]);});
   new ResizeObserver(draw).observe(canvas);
-  window.CNCViewer={load,selectLine,setView,fit,getState:()=>({filename,selectedLine:model.segments[selected]?.line??null,dirty,complete:model.complete,diagnostics:model.diagnostics.map(d=>({...d})),segments:model.segments.length})};
+  window.CNCViewer={setDevicePosition,setLiveTool,load,selectLine,setView,fit,getState:()=>({filename,selectedLine:model.segments[selected]?.line??null,dirty,complete:model.complete,diagnostics:model.diagnostics.map(d=>({...d})),segments:model.segments.length})};
   window.chrome?.webview?.addEventListener('message',e=>{try{const m=e.data;if(m?.type==='load')load(m.source,m.name);else if(m?.type==='selectLine')selectLine(m.line);else if(m?.type==='setView')setView(m.view);else if(m?.type==='fit')fit();else throw new Error('Unknown message type');}catch(error){emit('error',{message:error.message});}});
   load(demo);emit('ready',{version:'0.1.0'});
 })();
