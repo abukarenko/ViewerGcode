@@ -121,6 +121,23 @@
       }catch(e){if(generation===this.generation){this.fail(e);try{await this.write('!');}catch{}}throw e;}
       finally{clearInterval(this.pollTimer);this.pollTimer=null;if(!this.resetting){this.busy=false;this.paused=false;this.emit({type:'finished'});}}
     }
+    async terminal(command){
+      command=command.trim();
+      if(!command||command.length>79||!/^[\x20-\x7e]+$/.test(command))throw new Error('Введите одну ASCII-команду, до 79 символов');
+      if(!this.connected||this.busy||this.overrideBusy||this.manual||this.fault)throw new Error('Терминал: дождитесь завершения текущей операции');
+      if(command==='?'){const report=await this.status();this.emit({type:'log',direction:'←',text:report.raw});return;}
+      if(/[?!~]/.test(command))throw new Error('Для паузы и продолжения используйте кнопки управления');
+      this.busy=true;this.configuring=true;const generation=this.generation;this.emit({type:'terminalBusy'});
+      const check=()=>{if(generation!==this.generation||!this.connected)throw new Error('Команда прервана');};
+      try{
+        const initial=await this.status();check();if(!['Idle','Alarm','Check'].includes(initial.state))throw new Error('Терминал: устройство занято ('+initial.state+')');
+        await this.request('ack',command+'\n',this.timeout);check();
+        if(/^\$13=/.test(command)){this.reportScale=Number(command.split('=')[1])?25.4:1;}
+        this.wco=null;
+        while(true){const report=await this.status();check();if(['Idle','Alarm','Check','Sleep'].includes(report.state)){this.emit({type:'log',direction:'←',text:report.raw});break;}await new Promise(r=>setTimeout(r,this.interval));check();}
+      }catch(error){if(generation===this.generation&&!/^error:|^Терминал: устройство/.test(error.message))this.fail(error);throw error;}
+      finally{if(!this.resetting){this.busy=false;this.configuring=false;this.emit({type:'finished'});}}
+    }
     async setOverride(kind,target){
       if(!['feed','rapid'].includes(kind)||!Number.isInteger(target)||(kind==='feed'?(target<10||target>200):![25,50,100].includes(target)))throw new Error('Недопустимое значение коррекции');
       if(!this.connected||this.fault||this.resetting||this.configuring||this.overrideBusy)throw new Error('Коррекция сейчас недоступна');

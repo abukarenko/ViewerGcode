@@ -202,3 +202,11 @@ test('override refuses invalid rapid setting and missing confirmation never retr
  c.writer={write:async data=>{bytes.push([...data]);if(data[0]===63)queueMicrotask(()=>c.receive('<Idle|Ov:100,100,100>'));}};
  await assert.rejects(c.setOverride('feed',110),/подтверждения/);assert.equal(bytes.filter(x=>x[0]===0x91).length,1);assert.equal(c.overrideBusy,false);
 });
+test('terminal sends one command, collects replies and waits for motion to finish',async()=>{
+ const {c,sent}=fake();const result=c.terminal('G0 X10');c.receive('<Idle>');await wait();assert.ok(sent.includes('G0 X10\n'));
+ await assert.rejects(c.run('G1X1'));c.receive('ok');await wait();c.receive('<Run>');await wait();assert.equal(c.busy,true);c.receive('<Idle>');await result;assert.equal(c.busy,false);
+});
+test('terminal rejects multiline and realtime injection and accepts dollar queries',async()=>{
+ const {c,sent}=fake();await assert.rejects(c.terminal('G0X1\nG0X2'));await assert.rejects(c.terminal('G0X1!'));assert.equal(sent.length,0);
+ const result=c.terminal('$$');c.receive('<Idle>');await wait();c.receive('$0=10');c.receive('ok');await wait();c.receive('<Idle>');await result;assert.ok(sent.includes('$$\n'));
+});

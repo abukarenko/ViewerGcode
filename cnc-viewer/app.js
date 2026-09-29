@@ -50,13 +50,13 @@ M30`;
   let model,selected=-1,filename='demo.nc',view='iso',yaw=-.65,pitch=.88,scale=1,pan=[0,0],center=[0,0,0],playing=false,last=0,dirty=false,drag=null;
   function emit(type,payload){const message={type,...payload};window.dispatchEvent(new CustomEvent('cnc:'+type,{detail:message}));window.chrome?.webview?.postMessage(message);}
   function pause(){playing=false;$('play').textContent='▶';$('play').setAttribute('aria-label','Воспроизвести');}
-  function lineNumbers(){const n=$('editor').value.split('\n').length;$('numbers').replaceChildren(...Array.from({length:n},(_,i)=>{const el=document.createElement('div');el.textContent=i+1;return el;}));$('lineCount').textContent=n+' строк';syncScroll();}
+  function lineNumbers(){const n=$('editor').value.split('\n').length;if($('numbers').children.length!==n)$('numbers').replaceChildren(...Array.from({length:n},(_,i)=>{const el=document.createElement('div');el.textContent=i+1;return el;}));$('lineCount').textContent=n+' строк';syncScroll();}
   function syncScroll(){$('numbers').scrollTop=$('editor').scrollTop;}
   function load(source,name='program.nc'){
     if(window.grblController?.busy)throw new Error('Дождитесь завершения отправки на станок');
     if(typeof source!=='string')throw new TypeError('source must be a string');
     if(source.length>2e6||source.split('\n').length>50000)throw new Error('Лимит: 2 МБ или 50 000 строк.');
-    pause();$('editor').value=source;filename=String(name);$('filename').textContent=filename;lineNumbers();process();return model;
+    pause();$('editor').value=source;filename=String(name);$('filename').textContent=filename;lineNumbers();process();window.SmartEditor?.reset();return model;
   }
   function process(){pause();dirty=false;model=GCode.parse($('editor').value,{ignoreUnsupported:$('ignoreUnsupported').checked});$('scrub').max=Math.max(0,model.segments.length-1);$('scrub').disabled=!model.segments.length;
     $('distance').textContent=model.length.toFixed(1)+' мм';$('rapidDistance').textContent=model.rapidLength.toFixed(1)+' мм';$('bounds').textContent=model.bounds.max.map((v,i)=>(v-model.bounds.min[i]).toFixed(1)).join(' × ')+' мм';$('moves').textContent=model.segments.length;
@@ -66,7 +66,7 @@ M30`;
     $('play').disabled=$('next').disabled=$('prev').disabled=!model.segments.length;
     setFrame(model.segments.length?0:-1);fit();emit('loaded',{name:filename,segments:model.segments.length,complete:model.complete,diagnostics:model.diagnostics});
   }
-  function focusLine(line){const lines=$('editor').value.split('\n');const start=lines.slice(0,line-1).reduce((n,s)=>n+s.length+1,0);$('editor').focus();$('editor').setSelectionRange(start,start+(lines[line-1]?.length||0));$('editor').scrollTop=Math.max(0,(line-4)*24);syncScroll();}
+  function focusLine(line){if(window.SmartEditor){window.SmartEditor.goLine(line);return;}const lines=$('editor').value.split('\n');const start=lines.slice(0,line-1).reduce((n,s)=>n+s.length+1,0);$('editor').focus();$('editor').setSelectionRange(start,start+(lines[line-1]?.length||0));$('editor').scrollTop=Math.max(0,(line-4)*24);syncScroll();}
   function setFrame(index){if(!window.grblController?.busy)liveTool=false;selected=model?.segments.length?Math.max(0,Math.min(model.segments.length-1,Math.trunc(index))):-1;const seg=model?.segments[selected];$('scrub').value=Math.max(0,selected);$('frame').textContent=seg?`Кадр ${selected+1} / ${model.segments.length} · строка ${seg.line}`:'Нет перемещений';$('command').textContent=seg?`G${seg.type}  F${seg.feed.toFixed(0)}`:'—';
     (seg?.end||[0,0,0]).forEach((v,i)=>$(('xyz')[i]).textContent=v.toFixed(3));$('numbers').querySelector('.selected')?.classList.remove('selected');if(seg)$('numbers').children[seg.line-1]?.classList.add('selected');draw();if(seg)emit('selection',{line:seg.line,index:selected,position:{x:seg.end[0],y:seg.end[1],z:seg.end[2]}});
   }
@@ -97,11 +97,11 @@ M30`;
   $('scrub').oninput=e=>{pause();setFrame(Number(e.target.value));};$('prev').onclick=()=>{pause();setFrame(selected-1);};$('next').onclick=()=>{pause();setFrame(selected+1);};
   $('play').onclick=()=>{if(playing){pause();return;}if(selected>=model.segments.length-1)setFrame(0);playing=true;last=performance.now();$('play').textContent='Ⅱ';$('play').setAttribute('aria-label','Пауза');};
   function tick(now){if(playing&&now-last>1000/Number($('speed').value)){last=now;if(selected>=model.segments.length-1)pause();else setFrame(selected+1);}requestAnimationFrame(tick);}requestAnimationFrame(tick);
-  canvas.onpointerdown=e=>{drag={x:e.clientX,y:e.clientY,pan:e.shiftKey||e.button===1};canvas.setPointerCapture(e.pointerId);};canvas.onpointerup=canvas.onpointercancel=()=>drag=null;canvas.onpointermove=e=>{if(!drag)return;const dx=e.clientX-drag.x,dy=e.clientY-drag.y;drag.x=e.clientX;drag.y=e.clientY;if(drag.pan||view!=='iso'){pan[0]+=dx;pan[1]+=dy;}else{yaw+=dx*.008;pitch=Math.max(.05,Math.min(Math.PI-.05,pitch+dy*.008));}draw();};
+  canvas.onpointerdown=e=>{if(e.button===2)return;drag={x:e.clientX,y:e.clientY,pan:e.shiftKey||e.button===1};canvas.setPointerCapture(e.pointerId);};canvas.onpointerup=canvas.onpointercancel=()=>drag=null;canvas.onpointermove=e=>{if(!drag)return;const dx=e.clientX-drag.x,dy=e.clientY-drag.y;drag.x=e.clientX;drag.y=e.clientY;if(drag.pan||view!=='iso'){pan[0]+=dx;pan[1]+=dy;}else{yaw+=dx*.008;pitch=Math.max(.05,Math.min(Math.PI-.05,pitch+dy*.008));}draw();};
   canvas.addEventListener('wheel',e=>{e.preventDefault();scale=Math.max(.00001,Math.min(1e5,scale*Math.exp(-e.deltaY*.001)));draw();},{passive:false});canvas.ondblclick=fit;
   document.addEventListener('dragover',e=>{e.preventDefault();document.body.classList.add('dragging');});document.addEventListener('dragleave',e=>{if(!e.relatedTarget)document.body.classList.remove('dragging');});document.addEventListener('drop',e=>{e.preventDefault();document.body.classList.remove('dragging');readFile(e.dataTransfer.files[0]);});
   new ResizeObserver(draw).observe(canvas);
   window.CNCViewer={setDevicePosition,setLiveTool,load,selectLine,setView,fit,getState:()=>({filename,selectedLine:model.segments[selected]?.line??null,dirty,complete:model.complete,diagnostics:model.diagnostics.map(d=>({...d})),segments:model.segments.length})};
   window.chrome?.webview?.addEventListener('message',e=>{try{const m=e.data;if(m?.type==='load')load(m.source,m.name);else if(m?.type==='selectLine')selectLine(m.line);else if(m?.type==='setView')setView(m.view);else if(m?.type==='fit')fit();else throw new Error('Unknown message type');}catch(error){emit('error',{message:error.message});}});
-  load(demo);emit('ready',{version:'0.1.0'});
+  load(demo);emit('ready',{version:'0.2.0'});
 })();

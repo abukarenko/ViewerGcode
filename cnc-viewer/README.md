@@ -9,6 +9,8 @@
 | `index.html`, `style.css` | Интерфейс и компоновка |
 | `app.js` | Canvas, камера, редактор, маркер устройства, API просмотра |
 | `parser.js` | Независимый разбор G-code и расчёт геометрии |
+| `editor.js`, `editor.test.cjs` | Редактор, история и проверки |
+| `context-menu.js` | Контекстные меню приложения |
 | `encoding.js` | Декодирование файлов |
 | `grbl.js` | Web Serial, протокол, Jog, команды щупа и override |
 | `serial-ui.js` | Порты и органы управления |

@@ -26,7 +26,7 @@
     if(event.type==='progress'&&!controller.manual){if(!event.done)window.CNCViewer?.setLiveTool(true);$('serialProgress').textContent=`Выполнено ${event.done} / ${event.total} · строка ${event.line}`;if(event.line)window.CNCViewer.selectLine(event.line);}
     if(event.type==='jogStart')$('jogMessage').textContent='Перемещение… Стоп: ⊘ или Esc';
     if(event.type==='jogComplete')$('jogMessage').textContent=event.cancelled?'Jog остановлен · Idle':'Перемещение завершено · Idle';
-    if(event.type==='sending'&&!controller.manual)$('serialMessage').textContent=`Отправлена строка ${event.line}; ожидание ok и Idle…`;
+    if(event.type==='sending'&&!controller.manual){window.SmartEditor?.follow(event.line);$('serialMessage').textContent=`Отправлена строка ${event.line}; ожидание ok и Idle…`;}
     if(event.type==='resetting'){showCoordinates(null,null);$('serialMessage').textContent='Сброс GRBL → ожидание перезапуска → $X…';}
     if(event.type==='resetComplete')$('serialMessage').textContent='Сброс и разблокировка выполнены · Idle';
     if(event.type==='complete'&&!controller.manual)$('serialMessage').textContent='Программа выполнена · Idle';
@@ -50,6 +50,7 @@
     for(const id of ['zeroXY','zeroZ','probeZ','safeZ'])$(id).disabled=opening||!connected||busy||controller.overrideBusy||controller.manual||controller.fault;
     const overrideDisabled=opening||!connected||controller.fault||controller.resetting||controller.configuring||controller.overrideBusy;
     for(const kind of ['Feed','Rapid']){$('override'+kind+'Enabled').disabled=overrideDisabled;$('override'+kind).disabled=overrideDisabled||!$('override'+kind+'Enabled').checked;}
+    $('terminalSend').disabled=opening||!connected||busy||controller.overrideBusy||controller.manual||controller.fault;
     $('editor').readOnly=busy;
     for(const id of ['open','demo','process','ignoreUnsupported','play','prev','next','scrub'])$(id).disabled=busy;
   }
@@ -102,6 +103,13 @@
     $('override'+kind+'Enabled').onchange=()=>action(async()=>{if(!$('override'+kind+'Enabled').checked)await controller.setOverride(kind.toLowerCase(),100);});
     $('override'+kind).onchange=()=>action(()=>controller.setOverride(kind.toLowerCase(),kind==='Feed'?Number($('overrideFeed').value):[25,50,100][Number($('overrideRapid').value)]));
   }
+  const terminalHistory=[];let terminalIndex=0,terminalDraft='';
+  $('terminalClear').onclick=()=>$('serialLog').replaceChildren();
+  $('terminalForm').onsubmit=e=>{e.preventDefault();if($('terminalSend').disabled)return;const command=$('terminalInput').value.trim();if(!command)return;
+    terminalHistory.push(command);terminalIndex=terminalHistory.length;terminalDraft='';$('terminalInput').value='';
+    action(async()=>{try{await controller.terminal(command);}catch(error){const row=document.createElement('div');row.textContent='Ошибка: '+error.message;$('serialLog').append(row);throw error;}});
+  };
+  $('terminalInput').onkeydown=e=>{if(!['ArrowUp','ArrowDown'].includes(e.key))return;e.preventDefault();if(terminalIndex===terminalHistory.length)terminalDraft=e.target.value;terminalIndex=Math.max(0,Math.min(terminalHistory.length,terminalIndex+(e.key==='ArrowUp'?-1:1)));e.target.value=terminalHistory[terminalIndex]??terminalDraft;};
   $('serialHold').onclick=()=>action(()=>controller.hold());
   $('serialResume').onclick=()=>action(()=>controller.resume());
   $('serialReset').onclick=()=>action(()=>controller.reset());
