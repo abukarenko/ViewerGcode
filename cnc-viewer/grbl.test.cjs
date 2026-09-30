@@ -3,6 +3,13 @@ const assert=require('node:assert/strict');
 const {Controller,prepare}=require('./grbl.js');
 const wait=()=>new Promise(r=>setTimeout(r,5));
 function fake(){const events=[],sent=[];const c=new Controller(e=>events.push(e),{timeout:60,statusTimeout:60,interval:1});c.connected=true;c.writer={write:async bytes=>sent.push(new TextDecoder().decode(bytes))};return {c,events,sent};}
+
+test('Terminal command logs expect ACK but interleaved realtime queries do not',async()=>{
+ const {c,events}=fake();const task=c.systemCommand('$$');c.receive('<Idle>');await wait();await c.write('?');await c.write('!');
+ const outgoing=events.filter(e=>e.type==='log'&&e.direction==='→');
+ assert.equal(outgoing.find(e=>e.text==='$$').ackExpected,true);assert.equal(outgoing.find(e=>e.text==='!').ackExpected,false);assert.equal(outgoing.some(e=>e.text==='?'),false);
+ c.receive('$130=200');c.receive('ok');await task;
+});
 test('prepare preserves source lines, removes comments and rejects realtime injection before sending',()=>{
  assert.deepEqual(prepare('(русский)\r\nG1 X2 ; comment\n%\nM30'),[{code:'G1X2',line:2},{code:'M30',line:4}]);
  for(const text of ['G1X2!','G1X2?','$H','G1(unclosed','G1X'+ '1'.repeat(78)])assert.throws(()=>prepare(text));
@@ -97,16 +104,26 @@ test('settings timeout faults connection and motion state blocks writing',async(
 test('settings button follows connection lifecycle and re-enables after settings operation',async()=>{
  const vm=require('node:vm'),fs=require('node:fs');
  const elements=new Map();
- const element=id=>{if(!elements.has(id))elements.set(id,{disabled:true,textContent:'',value:'115200',replaceChildren(){}});return elements.get(id);};
+ const element=id=>{if(!elements.has(id))elements.set(id,{disabled:true,textContent:'',value:'115200',children:[],append(row){row.parentNode=this;this.children.push(row);},get childElementCount(){return this.children.length;},replaceChildren(){this.children.forEach(row=>row.parentNode=null);this.children=[];}});return elements.get(id);};
  class UIController{
   constructor(emit){this.emit=emit;this.connected=false;this.busy=false;this.fault=false;}
   async connect(){this.connected=true;this.emit({type:'connection',connected:true});}
   async disconnect(){this.connected=false;this.emit({type:'connection',connected:false});}
  }
  const window={isSecureContext:true,addEventListener(){}};
- vm.runInNewContext(fs.readFileSync(require.resolve('./serial-ui.js'),'utf8'),{document:{getElementById:element,createElement:()=>({})},window,navigator:{serial:{getPorts:async()=>[{getInfo:()=>({usbVendorId:0x0483,usbProductId:0x5740}),connected:true}]}},GRBL:{Controller:UIController}});
+ const persisted=new Map([['cnc-jog-feed','750']]),localStorage={getItem:k=>persisted.get(k),setItem:(k,v)=>persisted.set(k,v)};
+ vm.runInNewContext(fs.readFileSync(require.resolve('./serial-ui.js'),'utf8'),{document:{getElementById:element,createElement:()=>({})},window,localStorage,navigator:{serial:{getPorts:async()=>[{getInfo:()=>({usbVendorId:0x0483,usbProductId:0x5740}),connected:true}]}},GRBL:{Controller:UIController},DemoGRBL:{DemoPort:class{}}});
  await wait();
  const button=element('serialSettings'),c=window.grblController;
+ assert.equal(element('jogFeed').value,'750');element('jogFeed').value='1200';element('jogFeed').oninput();assert.equal(persisted.get('cnc-jog-feed'),'1200');element('jogFeed').value='';element('jogFeed').oninput();assert.equal(persisted.get('cnc-jog-feed'),'1200');
+ element('jogStep').value='23,45';element('jogStep').oninput();assert.equal(element('jogStep').value,'23.45');
+ element('jogStep').value='23-45';element('jogStep').oninput();assert.equal(element('jogStep').value,'23.45');
+ const log=element('serialLog');
+ c.emit({type:'log',direction:'→',text:'$$',ackExpected:true});
+ c.emit({type:'log',direction:'←',text:'$130=200'});c.emit({type:'log',direction:'→',text:'!',ackExpected:false});c.emit({type:'log',direction:'←',text:'ok'});
+ assert.equal(log.children[0].textContent,'→ $$  ← ok');assert.equal(log.children.length,3);
+ c.emit({type:'log',direction:'→',text:'G1X5',ackExpected:true});c.emit({type:'log',direction:'←',text:'error:20'});assert.equal(log.children.at(-1).textContent,'→ G1X5  ← error:20');
+ c.emit({type:'log',direction:'→',text:'G1X6',ackExpected:true});element('terminalClear').onclick();c.emit({type:'log',direction:'←',text:'ok'});assert.equal(log.children[0].textContent,'← ok');
  assert.equal(button.disabled,true);
  await element('serialConnect').onclick();assert.equal(button.disabled,false);
  c.busy=true;c.emit({type:'settingsBusy'});assert.equal(button.disabled,true);

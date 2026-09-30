@@ -4,11 +4,12 @@
  let baseline=new Map(),inputs=new Map(),working=false;
  function changed(){return [...inputs].filter(([id,input])=>input.value.trim()!==baseline.get(id));}
  function update(){
-  const changes=changed();$('settingsApply').disabled=working||!changes.length||!controller.connected||controller.fault;
-  $('settingsRead').disabled=working||!controller.connected||controller.fault;
+  $('settingsExport').disabled=working||controller.busy||(!$('demoMode').checked&&(!controller.connected||controller.fault));
+  const changes=changed();$('settingsApply').disabled=working||controller.busy||!changes.length||!controller.connected||controller.fault;
+  $('settingsRead').disabled=working||controller.busy||!controller.connected||controller.fault;
   $('settingsClose').disabled=working;
   for(const input of inputs.values())input.disabled=working;
-  for(const button of dialog.querySelectorAll('[data-query]'))button.disabled=working||!controller.connected||controller.fault;
+  for(const button of dialog.querySelectorAll('[data-query]'))button.disabled=working||controller.busy||!controller.connected||controller.fault;
   $('settingsPreview').textContent=changes.map(([id,input])=>`$${id}: ${baseline.get(id)} → ${input.value}    ($${id}=${input.value.trim().replace(',','.')})`).join('\n')||'Нет изменений';
  }
  function render(){
@@ -29,9 +30,28 @@
   baseline=values;render();$('settingsMessage').textContent=`Прочитано параметров: ${values.size}`;
  }
  async function action(fn){working=true;update();try{await fn();}catch(error){$('settingsMessage').textContent=error.message;}finally{working=false;update();}}
+ const demo=window.demoPort;
+ for(const [id,key] of [['demoSpeed','speed'],['demoSurface','surface'],['demoRipple','ripple']])$(id).value=demo.options[key];
+ $('demoProbe').checked=demo.options.probeEnabled;$('demoProbeForced').checked=demo.options.probeForced;
+ for(const [id,key] of [['demoSpeed','speed'],['demoSurface','surface'],['demoRipple','ripple']])$(id).onchange=()=>{const value=Number($(id).value);if(!Number.isFinite(value)||(key==='speed'&&(value<1||value>100))||(key==='ripple'&&value<0)){ $(id).value=demo.options[key];return;}demo.options[key]=value;demo.saveSettings();};
+ $('demoProbe').onchange=()=>{demo.options.probeEnabled=$('demoProbe').checked;demo.saveSettings();};
+ $('demoProbeForced').onchange=()=>{demo.options.probeForced=$('demoProbeForced').checked;demo.saveSettings();demo.report();};
+ for(const [i,axis] of [...'XYZ'].entries()){
+  const row=document.createElement('div');row.className='demo-sensor-row';
+  for(const forced of [false,true]){const label=document.createElement('label'),input=document.createElement('input');input.type='checkbox';input.checked=demo.options[forced?'forced':'sensors'][i];input.onchange=()=>{if(forced)demo.sensor(i,input.checked);else{demo.options.sensors[i]=input.checked;demo.saveSettings();}};label.append(input,document.createTextNode(forced?axis+' — сработал':axis+' — датчик исправен'));row.append(label);}
+  $('demoSensors').append(row);
+ }
+ setInterval(()=>{if(dialog.open&&$('demoMode').checked){$('demoStatus').textContent=`${demo.opened?'Подключён':'Отключён'} · ${demo.state} · датчики: ${demo.pins()||'нет'} · MPos ${demo.pos.map(v=>v.toFixed(2)).join(', ')}`;update();}},200);
  $('serialSettings').onclick=()=>{
-  baseline=new Map();render();$('settingsOutput').textContent='';$('settingsMessage').textContent='Чтение $$…';dialog.showModal();action(read);
+  baseline=new Map();render();$('settingsOutput').textContent='';$('settingsMessage').textContent='Чтение $$…';dialog.showModal();if(controller.connected&&!controller.busy&&!controller.fault)action(read);else $('settingsMessage').textContent='Настройки имитатора доступны. Параметры GRBL читаются при свободном соединении.';
  };
+ $('settingsExport').onclick=()=>action(async()=>{
+  const isDemo=$('demoMode').checked;
+  const values=isDemo?new Map(Object.entries(demo.settings).map(([k,v])=>[k,String(v)])):GRBLSettings.parse(await controller.systemCommand('$$'));
+  const text=GRBLSettings.exportNC(values),a=document.createElement('a');
+  a.href=URL.createObjectURL(new Blob([text],{type:'text/plain;charset=utf-8'}));a.download=`grbl-${isDemo?'demo':'settings'}-${new Date().toISOString().slice(0,10)}.nc`;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);
+  $('settingsMessage').textContent=`Экспортировано ${values.size} фактических параметров. Несохранённые правки не включены.`;
+ });
  $('settingsRead').onclick=()=>action(read);
  $('settingsClose').onclick=()=>dialog.close();
  dialog.addEventListener('cancel',e=>{if(working)e.preventDefault();});

@@ -34,5 +34,9 @@
  function describe(id){return entries[id]||[`Параметр прошивки $${id}`,'Расширение вашей прошивки. Назначение, единицы и диапазон уточняйте в её документации.'];}
  function parse(lines){const values=new Map();for(const line of lines){const match=/^\$(\d+)=(-?\d+(?:\.\d+)?)(?:\s.*)?$/.exec(line);if(match)values.set(match[1],match[2]);}return values;}
  function command(id,value){value=value.trim().replace(',','.');if(!/^\d+$/.test(id)||!/^\d+(?:\.\d+)?$/.test(value)||!Number.isFinite(Number(value)))throw new Error(`$${id}: введите неотрицательное число`);return `$${id}=${value}`;}
- const api={describe,parse,command};if(typeof module!=='undefined')module.exports=api;else root.GRBLSettings=api;
+ function exportNC(values){
+  if(!values.size)throw new Error('Нет параметров для экспорта');
+  return [...values].sort((a,b)=>Number(a[0])-Number(b[0])).map(([id,value])=>{const v=String(value);if(!/^\d+$/.test(String(id))||! /^-?\d+(?:\.\d+)?$/.test(v)||!Number.isFinite(Number(v)))throw new Error('Некорректный параметр $'+id);return `$${id}=${v}`;}).join('\r\n')+'\r\n';
+ }
+ const api={describe,parse,command,exportNC};if(typeof module!=='undefined')module.exports=api;else root.GRBLSettings=api;
 })(typeof window!=='undefined'?window:globalThis);
