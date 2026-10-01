@@ -3,14 +3,23 @@
  'use strict';
  const parse=typeof module!=='undefined'?require('./parser.js').parseGCode:root.GCode.parse;
  class DemoPort{
-  constructor(storage){try{this.storage=storage===undefined?root.localStorage:storage;}catch{this.storage=null;}this.isDemo=true;this.options={speed:10,surface:0,ripple:.2,probeEnabled:true,travel:[200,200,100],sensors:[true,true,true],forced:[false,false,false],probeForced:false};this.settings={7:0,13:0,21:1,22:1,23:0,24:100,25:1000,27:1,100:250,101:250,102:250,110:3000,111:3000,112:1000,130:200,131:200,132:100};this.job=null;this.pos=[50,50,15];this.offset=[50,50,10];this.ov=[100,100,100];this.state='Idle';this.units=1;this.absolute=true;this.motion=0;this.feed=500;this.spindle='M5';this.s=0;this.prb=[0,0,0];this.prbOK=0;this.tool=0;this.activeTool=0;this.toolLengthMode=49;this.restoreSettings();}
+  constructor(storage){try{this.storage=storage===undefined?root.localStorage:storage;}catch{this.storage=null;}this.isDemo=true;this.options={speed:10,surface:0,ripple:.2,probeEnabled:true,travel:[200,200,100],sensors:[true,true,true],forced:[false,false,false],probeForced:false};this.settings={0:10,1:25,2:0,3:0,4:0,5:0,6:0,7:0,10:1,11:0.01,12:0.002,13:0,20:0,21:1,22:1,23:0,24:100,25:1000,26:250,27:1,30:1000,31:0,32:0,100:250,101:250,102:250,110:3000,111:3000,112:1000,120:100,121:100,122:100,130:200,131:200,132:100};this.job=null;this.pos=[50,50,15];this.offset=[50,50,10];this.ov=[100,100,100];this.state='Idle';this.units=1;this.absolute=true;this.motion=0;this.feed=500;this.spindle='M5';this.s=0;this.prb=[0,0,0];this.prbOK=0;this.tool=0;this.activeTool=0;this.toolLengthMode=49;this.restoreSettings();}
   saveSettings(){
    try{this.storage?.setItem('cnc-demo-settings-v1',JSON.stringify({version:1,settings:this.settings,options:this.options}));}catch{}
+  }
+  validSetting(id,value){
+   if(!(id in this.settings)||!Number.isFinite(value)||value<0||value>1e6)return false;
+   if([4,5,6,7,13,20,21,22,32].includes(id))return value===0||value===1;
+   if([0,1,2,3,10,23,26].includes(id)&&!Number.isInteger(value))return false;
+   if([2,3,23].includes(id))return value<=7;
+   if(id===10)return value<=3;if(id===1)return value<=255;
+   if([0,11,12,24,25,27,100,101,102,110,111,112,120,121,122,130,131,132].includes(id))return value>0;
+   return true;
   }
   restoreSettings(){
    try{
     const saved=JSON.parse(this.storage?.getItem('cnc-demo-settings-v1')||'null');if(saved?.version!==1)return;
-    for(const key of Object.keys(this.settings)){const v=saved.settings?.[key];if(typeof v==='number'&&Number.isFinite(v)&&v>=0&&v<=1e6&&(![24,25,27,100,101,102,110,111,112,130,131,132].includes(+key)||v>0))this.settings[key]=v;}
+    for(const key of Object.keys(this.settings)){const v=saved.settings?.[key];if(typeof v==='number'&&this.validSetting(+key,v))this.settings[key]=v;}
     const o=saved.options||{};
     for(const key of ['speed','surface','ripple']){const v=o[key];if(typeof v==='number'&&Number.isFinite(v)&&Math.abs(v)<=1e6&&(key!=='speed'||v>=1&&v<=100)&&(key!=='ripple'||v>=0))this.options[key]=v;}
     for(const key of ['probeEnabled','probeForced'])if(typeof o[key]==='boolean')this.options[key]=o[key];
@@ -27,8 +36,8 @@
   async setSignals(){}
   async close(){clearInterval(this.timer);this.job=null;this.state='Idle';this.opened=false;try{this.output?.close();}catch{}this.output=null;}
   send(line){if(this.output)this.output.enqueue(new TextEncoder().encode(line+'\r\n'));}
-  pins(){return this.options.forced.map((v,i)=>(v||(this.options.sensors[i]&&(this.pos[i]<=0||this.pos[i]>=this.options.travel[i])))?'XYZ'[i]:'').join('')+(this.options.probeForced?'P':'');}
-  report(){const scale=this.settings[13]?25.4:1;const vec=v=>v.map(x=>(x/scale).toFixed(3)).join(',');this.send(`<${this.state}|MPos:${vec(this.pos)}|WCO:${vec(this.offset)}|FS:${this.state==='Run'||this.state==='Jog'?this.feed:0},${this.s}|Ov:${this.ov.join(',')}${this.pins()?'|Pn:'+this.pins():''}>`);}
+  pins(){return this.options.forced.map((v,i)=>(v||(this.options.sensors[i]&&(this.pos[i]<=0||this.pos[i]>=this.options.travel[i])))?'XYZ'[i]:'').join('')+((this.options.probeForced||(this.options.probeEnabled&&this.prbOK&&this.pos[2]<=this.prb[2]+.0001))?'P':'');}
+  report(){const scale=this.settings[13]?25.4:1;const vec=v=>v.map(x=>(x/scale).toFixed(3)).join(',');const position=this.settings[10]&1?'MPos:'+vec(this.pos):'WPos:'+vec(this.pos.map((v,i)=>v-this.offset[i]));this.send(`<${this.state}|${position}|WCO:${vec(this.offset)}|FS:${this.state==='Run'||this.state==='Jog'?this.feed:0},${this.s}|Ov:${this.ov.join(',')}${this.pins()?'|Pn:'+this.pins():''}>`);}
   alarm(n){this.job=null;this.state='Alarm';this.send('ALARM:'+n);this.report();}
   sensor(axis,value){this.options.forced[axis]=value;this.saveSettings();if(value&&this.settings[21]&&this.state!=='Home')this.alarm(1);else this.report();}
   reset(){this.job=null;this.buffer='';this.state='Alarm';this.units=1;this.absolute=true;this.motion=0;this.spindle='M5';this.s=0;this.toolLengthMode=49;this.send("Grbl 1.1h ['$' for help] (ViewerGcode DEMO)");}
@@ -51,7 +60,7 @@
    if(code==='$X'){if(this.job){this.send('error:8');return;}this.state='Idle';this.send('ok');this.report();return;}
    if(code==='$H'){this.home();return;}
    const setting=/^\$(\d+)=(-?\d+(?:\.\d+)?)$/.exec(code);
-   if(setting){const id=+setting[1],value=+setting[2];if(this.job||!(id in this.settings)||value<0||([130,131,132,24,25,27].includes(id)&&value===0)){this.send('error:3');return;}this.settings[id]=value;if(id>=130&&id<=132)this.options.travel[id-130]=value;this.saveSettings();this.send('ok');return;}
+   if(setting){const id=+setting[1],value=+setting[2];if(this.job||!this.validSetting(id,value)){this.send('error:3');return;}this.settings[id]=value;if(id>=130&&id<=132)this.options.travel[id-130]=value;this.saveSettings();this.send('ok');return;}
    if(code.startsWith('$')&&!code.startsWith('$J=')){this.send('error:3');return;}
    if(this.state==='Alarm'){this.send('error:9');return;}if(this.job){this.send('error:8');return;}
    const jog=code.startsWith('$J='),body=jog?code.slice(3):code;
@@ -72,6 +81,7 @@
    if(!jog&&gs.includes(49))this.toolLengthMode=49;
    if(gs.includes(92)){for(let i=0;i<3;i++)if('XYZ'[i]in words)this.offset[i]=this.pos[i]-words['XYZ'[i]]*units;this.send('ok');this.report();return;}
    const target=this.pos.map((v,i)=>'XYZ'[i]in words?(absolute?gs.includes(53)?0:this.offset[i]:v)+words['XYZ'[i]]*units:v);
+   if(this.settings[20]&&target.some((v,i)=>v<0||v>this.options.travel[i])){this.alarm(2);return;}
    if(!'XYZIJKR'.split('').some(k=>k in words)){if(ms.includes(0)||ms.includes(1))this.state='Hold:0';this.send('ok');this.report();return;}
    if(this.settings[21]&&this.options.forced.some(Boolean)){this.alarm(1);return;}
    let points=[this.pos.slice(),target],probe=false,hit=false;
@@ -85,6 +95,7 @@
     const text=`G21G90\nG0X${start[0]}Y${start[1]}Z${start[2]}\nG${units===1?21:20}G${absolute?90:91}\nG${motion}`+Object.entries(words).filter(([k])=>'XYZIJKRF'.includes(k)).map(([k,v])=>k+v).join('');
     const parsed=parse(text);if(!parsed.complete){this.send('error:33');return;}points=parsed.segments.at(-1).points.map(p=>p.map((v,i)=>v+this.offset[i]));
    }else if(motion===80){this.send('error:80');return;}
+   if(this.settings[20]&&points.some(p=>p.some((v,i)=>v<0||v>this.options.travel[i]))){this.alarm(2);return;}
    const kind=jog?'Jog':'Run';this.state=kind;this.job={kind,points,index:1,feed:!jog&&!probe&&motion===0?this.settings[110]:feed,rapid:!jog&&!probe&&motion===0,probe,hit,ack:probe};
    if(!probe)this.send('ok');this.report();
   }

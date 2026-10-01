@@ -112,7 +112,7 @@ test('settings button follows connection lifecycle and re-enables after settings
  }
  const window={isSecureContext:true,addEventListener(){}};
  const persisted=new Map([['cnc-jog-feed','750']]),localStorage={getItem:k=>persisted.get(k),setItem:(k,v)=>persisted.set(k,v)};
- vm.runInNewContext(fs.readFileSync(require.resolve('./serial-ui.js'),'utf8'),{document:{getElementById:element,createElement:()=>({})},window,localStorage,navigator:{serial:{getPorts:async()=>[{getInfo:()=>({usbVendorId:0x0483,usbProductId:0x5740}),connected:true}]}},GRBL:{Controller:UIController},DemoGRBL:{DemoPort:class{}}});
+ vm.runInNewContext(fs.readFileSync(require.resolve('./serial-ui.js'),'utf8'),{document:{getElementById:element,createElement:()=>({})},window,localStorage,RunDisplay:require('./run-display.js'),setInterval(){},navigator:{serial:{getPorts:async()=>[{getInfo:()=>({usbVendorId:0x0483,usbProductId:0x5740}),connected:true}]}},GRBL:{Controller:UIController},DemoGRBL:{DemoPort:class{}}});
  await wait();
  const button=element('serialSettings'),c=window.grblController;
  assert.equal(element('jogFeed').value,'750');element('jogFeed').value='1200';element('jogFeed').oninput();assert.equal(persisted.get('cnc-jog-feed'),'1200');element('jogFeed').value='';element('jogFeed').oninput();assert.equal(persisted.get('cnc-jog-feed'),'1200');
@@ -124,13 +124,15 @@ test('settings button follows connection lifecycle and re-enables after settings
  assert.equal(log.children[0].textContent,'→ $$  ← ok');assert.equal(log.children.length,3);
  c.emit({type:'log',direction:'→',text:'G1X5',ackExpected:true});c.emit({type:'log',direction:'←',text:'error:20'});assert.equal(log.children.at(-1).textContent,'→ G1X5  ← error:20');
  c.emit({type:'log',direction:'→',text:'G1X6',ackExpected:true});element('terminalClear').onclick();c.emit({type:'log',direction:'←',text:'ok'});assert.equal(log.children[0].textContent,'← ok');
- assert.equal(button.disabled,true);
+ assert.equal(button.disabled,false);
  await element('serialConnect').onclick();assert.equal(button.disabled,false);
- c.busy=true;c.emit({type:'settingsBusy'});assert.equal(button.disabled,true);
+ c.emit({type:'status',state:'Idle',fields:{Pn:'XP'},position:null,machinePosition:null});assert.equal(element('pinX').textContent,'X · сработал');assert.equal(element('pinP').className,'pin-active');assert.equal(element('pinY').className,'pin-free');
+ c.emit({type:'status',state:'Idle',fields:{},position:null,machinePosition:null});assert.equal(element('pinX').className,'pin-free');
+ c.busy=true;c.emit({type:'settingsBusy'});assert.equal(button.disabled,false);
  c.busy=false;c.emit({type:'finished'});assert.equal(button.disabled,false);
- c.fault=true;c.emit({type:'error',message:'fault'});assert.equal(button.disabled,true);
+ c.fault=true;c.emit({type:'error',message:'fault'});assert.equal(button.disabled,false);
  c.fault=false;c.emit({type:'finished'});assert.equal(button.disabled,false);
- await element('serialConnect').onclick();assert.equal(button.disabled,true);
+ await element('serialConnect').onclick();assert.equal(button.disabled,false);
 });
 
 test('status and command acknowledgement are independent and duplicate status calls coalesce',async()=>{

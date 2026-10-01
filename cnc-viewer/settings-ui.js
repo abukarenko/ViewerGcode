@@ -2,6 +2,11 @@
  'use strict';
  const $=id=>document.getElementById(id),dialog=$('settingsDialog'),controller=window.grblController;
  let baseline=new Map(),inputs=new Map(),working=false;
+ function selectTab(name){for(const key of ['grbl','port','theme'])$('settings-'+key).hidden=key!==name;$('settingsGrblActions').hidden=name!=='grbl';for(const button of dialog.querySelectorAll('[data-settings-tab]'))button.setAttribute('aria-pressed',String(button.dataset.settingsTab===name));}
+ for(const button of dialog.querySelectorAll('[data-settings-tab]'))button.onclick=()=>selectTab(button.dataset.settingsTab);
+ window.syncPortSettings=()=>{const source=$('serialPort'),target=$('settingsPort');target.replaceChildren(...Array.from(source.options,option=>option.cloneNode(true)));target.value=source.value;target.disabled=source.disabled;$('settingsBaud').value=$('baudRate').value;$('settingsBaud').disabled=$('baudRate').disabled;$('portSettingsState').textContent=$('demoMode').checked?'Demo: используется виртуальный порт.':controller.connected?'Порт открыт. Для изменения параметров разъедините соединение.':'Выберите порт и скорость, затем нажмите «Соединить» в главном окне.';};
+ $('settingsPort').onchange=async()=>{$('serialPort').value=$('settingsPort').value;await $('serialPort').onchange();window.syncPortSettings();};
+ $('settingsBaud').onchange=()=>{$('baudRate').value=$('settingsBaud').value;$('baudRate').onchange();};
  function changed(){return [...inputs].filter(([id,input])=>input.value.trim()!==baseline.get(id));}
  function update(){
   $('settingsExport').disabled=working||controller.busy||(!$('demoMode').checked&&(!controller.connected||controller.fault));
@@ -41,9 +46,10 @@
   for(const forced of [false,true]){const label=document.createElement('label'),input=document.createElement('input');input.type='checkbox';input.checked=demo.options[forced?'forced':'sensors'][i];input.onchange=()=>{if(forced)demo.sensor(i,input.checked);else{demo.options.sensors[i]=input.checked;demo.saveSettings();}};label.append(input,document.createTextNode(forced?axis+' — сработал':axis+' — датчик исправен'));row.append(label);}
   $('demoSensors').append(row);
  }
- setInterval(()=>{if(dialog.open&&$('demoMode').checked){$('demoStatus').textContent=`${demo.opened?'Подключён':'Отключён'} · ${demo.state} · датчики: ${demo.pins()||'нет'} · MPos ${demo.pos.map(v=>v.toFixed(2)).join(', ')}`;update();}},200);
+ setInterval(()=>{if(dialog.open){if($('demoMode').checked)$('demoStatus').textContent=`${demo.opened?'Подключён':'Отключён'} · ${demo.state} · датчики: ${demo.pins()||'нет'} · MPos ${demo.pos.map(v=>v.toFixed(2)).join(', ')}`;update();}},200);
  $('serialSettings').onclick=()=>{
-  baseline=new Map();render();$('settingsOutput').textContent='';$('settingsMessage').textContent='Чтение $$…';dialog.showModal();if(controller.connected&&!controller.busy&&!controller.fault)action(read);else $('settingsMessage').textContent='Настройки имитатора доступны. Параметры GRBL читаются при свободном соединении.';
+  window.syncPortSettings();selectTab('grbl');
+  baseline=new Map();render();$('settingsOutput').textContent='';$('settingsMessage').textContent='Чтение $$…';dialog.showModal();if(controller.connected&&!controller.busy&&!controller.fault)action(read);else $('settingsMessage').textContent='Для чтения и записи GRBL подключитесь и дождитесь завершения операции. Порт и тема доступны в соседних разделах.';
  };
  $('settingsExport').onclick=()=>action(async()=>{
   const isDemo=$('demoMode').checked;

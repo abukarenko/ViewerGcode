@@ -25,6 +25,7 @@
   add('Выделить всё',()=>{field.focus();field.select();},false,'Ctrl+A');
  }
  function show(event){
+  if(event.target.closest('#viewport')){event.preventDefault();close();return;}
   event.preventDefault();close();origin=document.activeElement;menu.replaceChildren();
   const target=event.target instanceof Element?event.target:document.body;
   (target.closest('dialog')||document.body).append(menu);

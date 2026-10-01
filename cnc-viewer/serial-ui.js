@@ -3,6 +3,9 @@
   const $=id=>document.getElementById(id);
   function showCoordinates(work,machine){for(const [i,axis] of [...'XYZ'].entries()){for(const [prefix,values] of [['work',work],['machine',machine]])$(prefix+axis).textContent=Number.isFinite(values?.[i])?values[i].toFixed(3):'—';}}
   let opening=false,ports=[],selectedPort=null,pendingLogRow=null;
+  const timer=new RunDisplay.Timer();
+  setInterval(()=>{$('runTimer').textContent=timer.text();},100);
+  function showState(raw){const [label,kind]=RunDisplay.state(raw);$('deviceState').textContent=label;$('deviceState').className='state-badge state-'+kind;$('deviceState').title=raw||'Нет соединения';}
   const demoPort=new DemoGRBL.DemoPort();window.demoPort=demoPort;
   const storage={get(key){try{return localStorage.getItem(key);}catch{return null;}},set(key,value){try{localStorage.setItem(key,value);}catch{}}};
   const savedFeed=Number(storage.get('cnc-jog-feed'));
@@ -10,7 +13,11 @@
   $('jogFeed').oninput=()=>{const feed=Number($('jogFeed').value);if(Number.isFinite(feed)&&feed>0&&feed<=10000)storage.set('cnc-jog-feed',String(feed));};
   $('jogStep').oninput=()=>{$('jogStep').value=$('jogStep').value.replace(/[^0-9]/g,'.');};
   const portKey=port=>JSON.stringify(port.getInfo());
+  const savedBaud=storage.get('cnc-baud');if(['115200','57600','38400','9600'].includes(savedBaud))$('baudRate').value=savedBaud;
+  $('baudRate').onchange=()=>{storage.set('cnc-baud',$('baudRate').value);window.syncPortSettings?.();};
+  function showPins(pins){for(const axis of 'XYZP'){const node=$('pin'+axis),active=pins?.includes(axis);node.textContent=axis+' · '+(pins===null?'—':active?'сработал':'свободен');node.className=pins===null?'pin-unknown':active?'pin-active':'pin-free';}}
   const controller=new GRBL.Controller(event=>{
+    timer.event(event);$('runTimer').textContent=timer.text();
     if(event.type==='log'){
       if(event.direction==='←'&&(event.text==='ok'||/^error:/.test(event.text))&&pendingLogRow?.parentNode===$('serialLog')){
         pendingLogRow.textContent+='  ← '+event.text;pendingLogRow=null;
@@ -23,6 +30,7 @@
       $('serialLog').scrollTop=$('serialLog').scrollHeight;
     }
     if(event.type==='status'){
+      showPins(event.fields.Pn||'');
       window.CNCViewer?.setDeviceState(event.state);
       window.CNCViewer?.setMachineCoordinates?.(event.machinePosition,event.position);
       showCoordinates(event.position,event.machinePosition);
@@ -32,10 +40,10 @@
       }}
       window.CNCViewer?.setDevicePosition(event.position);
       if(controller.busy&&(!controller.configuring||/^(Home|Run|Jog)/.test(event.state)))window.CNCViewer?.setLiveTool(true);
-      $('deviceState').textContent=event.state;
+      showState(event.state);
       $('devicePosition').textContent=['MPos','WPos','FS'].filter(k=>event.fields[k]).map(k=>`${k}: ${event.fields[k]}`).join(' · ')||event.raw;
     }
-    if(event.type==='connection'){pendingLogRow=null;$('deviceState').textContent=event.connected?controller.lastStatus?.state||'Подключено':'Отключено';if(!event.connected){window.CNCViewer?.setDeviceState(null);window.CNCViewer?.setMachineEnvelope?.(null);$('overrideFeedValue').textContent=$('overrideRapidValue').textContent='—';showCoordinates(null,null);$('devicePosition').textContent='';window.CNCViewer?.setDevicePosition(null);}}
+    if(event.type==='connection'){pendingLogRow=null;showState(event.connected?controller.lastStatus?.state||'Подключено':null);if(!event.connected){window.CNCViewer?.setDeviceState(null);window.CNCViewer?.setMachineEnvelope?.(null);$('overrideFeedValue').textContent=$('overrideRapidValue').textContent='—';showCoordinates(null,null);$('devicePosition').textContent='';window.CNCViewer?.setDevicePosition(null);}}
     if(event.type==='progress'&&!controller.manual){if(!event.done)window.CNCViewer?.setLiveTool(true);$('serialProgress').textContent=`Выполнено ${event.done} / ${event.total} · строка ${event.line}`;if(event.line)window.CNCViewer.selectLine(event.line);}
     if(event.type==='jogQueue')$('jogMessage').textContent=event.count?`Jog: ${event.count} / 5 нажатий · Стоп очищает очередь`:'Очередь Jog пуста';
     if(event.type==='jogStart')$('jogMessage').textContent='Перемещение… Стоп: ⊘ или Esc';
@@ -44,7 +52,7 @@
     if(event.type==='resetting'){window.CNCViewer?.setMachineEnvelope?.(null);showCoordinates(null,null);$('serialMessage').textContent='Сброс GRBL → ожидание перезапуска → $X…';}
     if(event.type==='resetComplete')$('serialMessage').textContent='Сброс и разблокировка выполнены · Idle';
     if(event.type==='complete'&&!controller.manual)$('serialMessage').textContent='Программа выполнена · Idle';
-    if(event.type==='error'){pendingLogRow=null;$('serialMessage').textContent=event.message;if(/^ALARM:/.test(event.message))window.CNCViewer?.setDeviceState('Alarm');}
+    if(event.type==='error'){pendingLogRow=null;$('serialMessage').textContent=event.message;if(/^ALARM:/.test(event.message)){showState('Alarm');window.CNCViewer?.setDeviceState('Alarm');}}
     if(event.type!=='status'&&event.type!=='log')update();
   });
   window.grblController=controller;
@@ -56,7 +64,9 @@
     $('serialPort').disabled=opening||connected||$('demoMode').checked;
     $('serialConnect').textContent=connected?'Разъединить':'Соединить';
     $('baudRate').disabled=opening||connected;
-    $('serialSettings').disabled=opening||(!$('demoMode').checked&&(!connected||busy||controller.overrideBusy||controller.fault));
+    $('serialSettings').disabled=false;
+    if(!connected)showPins(null);
+    window.syncPortSettings?.();
     $('serialSend').disabled=opening||!connected||busy||controller.overrideBusy||controller.fault;
     $('serialHold').disabled=!connected||!busy||controller.configuring||controller.jogging||controller.paused||controller.fault;
     $('serialResume').disabled=!connected||!busy||!controller.paused||controller.fault;
@@ -152,6 +162,7 @@
   $('serialReset').onclick=()=>action(()=>controller.reset());
   $('restoreZero').onclick=()=>action(async()=>{await controller.restoreWorkZero();$('machineMessage').textContent='Рабочий ноль восстановлен без перемещения';});
   window.addEventListener('beforeunload',e=>{if(controller.busy){e.preventDefault();e.returnValue='';}});
+  setInterval(()=>{if(controller.connected&&!opening&&!controller.busy&&!controller.manual&&!controller.pending&&!controller.pendingStatus&&!controller.resetting)controller.status().catch(()=>showPins(null));},200);
   update();
 })();
 

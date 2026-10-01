@@ -107,6 +107,7 @@
       this.emit({type:'progress',done:0,total:blocks.length,line:0});
       try{
         const initial=await this.status();check();if(initial.state!=='Idle')throw new Error('Для запуска требуется Idle, получено '+initial.state);
+        if(!this.manual)this.emit({type:'programStart'});
         this.pollTimer=setInterval(()=>{this.status().catch(e=>{if(this.busy&&!this.fault)this.fail(e);});},this.interval);
         for(let i=0;i<blocks.length;i++){
           check();while(this.paused){await new Promise(r=>setTimeout(r,this.interval));check();}
@@ -122,7 +123,7 @@
         }
         this.emit({type:'complete'});
       }catch(e){if(generation===this.generation){this.fail(e);try{await this.write('!');}catch{}}throw e;}
-      finally{clearInterval(this.pollTimer);this.pollTimer=null;if(!this.resetting){this.busy=false;this.paused=false;this.emit({type:'finished'});}}
+      finally{if(!this.manual)this.emit({type:'programEnd'});clearInterval(this.pollTimer);this.pollTimer=null;if(!this.resetting){this.busy=false;this.paused=false;this.emit({type:'finished'});}}
     }
     async terminal(command){
       command=command.trim();

@@ -2,6 +2,7 @@
 (() => {
   'use strict';
   const $=id=>document.getElementById(id),canvas=$('canvas'),ctx=canvas.getContext('2d');
+  function palette(){const theme=document.documentElement?.dataset?.theme;return theme==='light'?{grid:'#c5cfdb',cut:'#087f69',rapid:'#597695',done:'#798597',text:'#334155'}:theme==='amber'?{grid:'#3c301b',cut:'#ffc23d',rapid:'#be812e',done:'#8c806a',text:'#ffd882'}:{grid:'#26374a',cut:'#45debb',rapid:'#647b9e',done:'#87919e',text:'#e18589'};}
   const toolCanvas=document.createElement('canvas');toolCanvas.className='tool-overlay';toolCanvas.setAttribute('aria-hidden','true');$('viewport').append(toolCanvas);const toolCtx=toolCanvas.getContext('2d');
   let liveTool=false,devicePosition=null,deviceSurface=null,machineEnvelope=null,workOffset=null;
   function setMachineEnvelope(size,positive=false){machineEnvelope=Array.isArray(size)&&size.length===3&&size.every(v=>Number.isFinite(v)&&v>0)?{size:size.slice(),positive}:null;fit();}
@@ -81,19 +82,19 @@ M30`;
     if(deviceSurface){
       const lo=model.bounds.min,hi=model.bounds.max,margin=Math.max(2,Math.max(hi[0]-lo[0],hi[1]-lo[1])*.06);
       const corners=[[lo[0]-margin,lo[1]-margin,0],[hi[0]+margin,lo[1]-margin,0],[hi[0]+margin,hi[1]+margin,0],[lo[0]-margin,hi[1]+margin,0]];
-      ctx.beginPath();corners.forEach((p,i)=>{const q=project(p);i?ctx.lineTo(...q):ctx.moveTo(...q);});ctx.closePath();ctx.fillStyle=deviceSurface;ctx.fill();ctx.strokeStyle='#101923';ctx.lineWidth=1;ctx.stroke();
+      ctx.beginPath();corners.forEach((p,i)=>{const q=project(p);i?ctx.lineTo(...q):ctx.moveTo(...q);});ctx.closePath();ctx.fillStyle=document.documentElement?.dataset?.theme==='light'?({'#49232d':'#f3d5dc','#48432b':'#eee4b8','#163c51':'#cee2f0','#293f30':'#d6e7d9'})[deviceSurface]:deviceSurface;ctx.fill();ctx.strokeStyle='#101923';ctx.lineWidth=1;ctx.stroke();
     }
     if($('grid').checked){const [u,v]=view==='xz'?[0,2]:view==='yz'?[1,2]:[0,1];const span=Math.max(20,...model.bounds.max.map((n,i)=>n-model.bounds.min[i]));const step=10**Math.floor(Math.log10(span/6));const size=Math.ceil(span/step)*step;const c=center.map(n=>Math.round(n/step)*step);
-      for(let n=-size;n<=size;n+=step){let a=[0,0,0],b=[0,0,0];a[u]=c[u]+n;b[u]=a[u];a[v]=c[v]-size;b[v]=c[v]+size;path([a,b],'#26374a',.65);a=[0,0,0];b=[0,0,0];a[v]=c[v]+n;b[v]=a[v];a[u]=c[u]-size;b[u]=c[u]+size;path([a,b],'#26374a',.65);}
+      for(let n=-size;n<=size;n+=step){let a=[0,0,0],b=[0,0,0];a[u]=c[u]+n;b[u]=a[u];a[v]=c[v]-size;b[v]=c[v]+size;path([a,b],palette().grid,.65);a=[0,0,0];b=[0,0,0];a[v]=c[v]+n;b[v]=a[v];a[u]=c[u]-size;b[u]=c[u]+size;path([a,b],palette().grid,.65);}
     }
     const extent=Math.max(10,...model.bounds.max.map((v,i)=>v-model.bounds.min[i]))*.25;
     [[0,'#eb7b83','X'],[1,'#79bd8e','Y'],[2,'#7ca8ff','Z']].forEach(([i,color,label])=>{const p=[0,0,0];p[i]=extent;path([[0,0,0],p],color,1);const q=project(p);ctx.font='12px Consolas';ctx.fillStyle=color;ctx.fillText(label,q[0]+5,q[1]-5);});
-    model.segments.forEach((s,i)=>{if(s.type===0&&!$('rapid').checked)return;path(s.points,i<=selected?'#87919e':s.type===0?'#647b9e':'#45debb',i===selected?3:s.type===0?1:1.7,s.type===0?[5,5]:[]);});
+    model.segments.forEach((s,i)=>{if(s.type===0&&!$('rapid').checked)return;path(s.points,i<=selected?palette().done:s.type===0?palette().rapid:palette().cut,i===selected?3:s.type===0?1:1.7,s.type===0?[5,5]:[]);});
     const envelope=envelopeBounds();
     if(envelope){
       const corners=Array.from({length:8},(_,n)=>[0,1,2].map(i=>n&(1<<i)?envelope.max[i]:envelope.min[i]));
       for(let n=0;n<8;n++)for(let axis=0;axis<3;axis++)if(!(n&(1<<axis)))path([corners[n],corners[n|(1<<axis)]],'#ce535b',1.2,[7,5]);
-      const q=project(corners[3]);ctx.fillStyle='#e18589';ctx.font='12px Consolas';ctx.fillText('Стол · '+machineEnvelope.size.join(' × ')+' мм',q[0]+8,q[1]-8);
+      const q=project(corners[3]);ctx.fillStyle=palette().text;ctx.font='12px Consolas';ctx.fillText('Стол · '+machineEnvelope.size.join(' × ')+' мм',q[0]+8,q[1]-8);
     }
     drawTool();
   }
@@ -113,14 +114,14 @@ M30`;
   function tick(now){if(playing&&now-last>1000/Number($('speed').value)){last=now;if(selected>=model.segments.length-1)pause();else setFrame(selected+1);}requestAnimationFrame(tick);}requestAnimationFrame(tick);
   function canPlaceModel(){const c=window.grblController;return view==='xy'&&c?.port?.isDemo&&c.connected&&!c.busy&&!c.jogQueueActive&&!c.fault&&c.lastStatus?.state==='Idle'&&envelopeBounds()&&!window.HeightMapUI?.isActive();}
   canvas.onpointerdown=e=>{
-    if(e.button===2)return;
+    if(e.button===2)e.preventDefault?.();
     let placement=false;
     if(e.button===0&&!e.shiftKey&&canPlaceModel()){
       const rect=canvas.getBoundingClientRect(),x=(e.clientX-rect.left-canvas.clientWidth/2-pan[0])/scale+center[0],y=-(e.clientY-rect.top-canvas.clientHeight/2-pan[1])/scale+center[1];
       placement=x>=model.bounds.min[0]-4/scale&&x<=model.bounds.max[0]+4/scale&&y>=model.bounds.min[1]-4/scale&&y<=model.bounds.max[1]+4/scale;
     }
     if(placement)pause();
-    drag={x:e.clientX,y:e.clientY,pan:e.shiftKey||e.button===1,placement};canvas.setPointerCapture(e.pointerId);
+    drag={x:e.clientX,y:e.clientY,pan:e.shiftKey||e.button===1||e.button===2,placement};canvas.setPointerCapture(e.pointerId);
   };
   canvas.onpointerup=canvas.onpointercancel=()=>{drag=null;};
   canvas.onpointermove=e=>{
@@ -142,6 +143,7 @@ M30`;
   canvas.addEventListener('wheel',e=>{e.preventDefault();scale=Math.max(.00001,Math.min(1e5,scale*Math.exp(-e.deltaY*.001)));draw();},{passive:false});canvas.ondblclick=fit;
   document.addEventListener('dragover',e=>{e.preventDefault();document.body.classList.add('dragging');});document.addEventListener('dragleave',e=>{if(!e.relatedTarget)document.body.classList.remove('dragging');});document.addEventListener('drop',e=>{e.preventDefault();document.body.classList.remove('dragging');readFile(e.dataTransfer.files[0]);});
   new ResizeObserver(draw).observe(canvas);
+  window.addEventListener?.('cnc:theme',draw);
   window.CNCViewer={setMachineEnvelope,setMachineCoordinates,setDeviceState,setDevicePosition,setLiveTool,load,selectLine,setView,fit,getState:()=>({filename,selectedLine:model.segments[selected]?.line??null,dirty,complete:model.complete,diagnostics:model.diagnostics.map(d=>({...d})),segments:model.segments.length})};
   window.chrome?.webview?.addEventListener('message',e=>{try{const m=e.data;if(m?.type==='load')load(m.source,m.name);else if(m?.type==='selectLine')selectLine(m.line);else if(m?.type==='setView')setView(m.view);else if(m?.type==='fit')fit();else throw new Error('Unknown message type');}catch(error){emit('error',{message:error.message});}});
   load(demo);emit('ready',{version:'0.4.0'});

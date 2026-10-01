@@ -7,7 +7,7 @@ function setup(){
  const window={dispatchEvent(){},demoPort:port,grblController:{port,connected:true,lastStatus:{state:'Idle'}}};
  vm.runInNewContext(fs.readFileSync(require.resolve('./app.js'),'utf8'),{window,document:{getElementById:get,createElement:make,createDocumentFragment:make,querySelectorAll:()=>[],addEventListener(){}},GCode:{parse:require('./parser.js').parseGCode},CustomEvent:class{},requestAnimationFrame(){},ResizeObserver:class{observe(){}},performance});
  const api=window.CNCViewer;api.load('G21G90\nG0X0Y0\nG1X20Y20F100');api.setMachineCoordinates([50,50,15],[0,0,5]);api.setMachineEnvelope([200,200,100],true);api.setView('xy');
- const canvas=get('canvas');const drag=(x,y,shiftKey=false)=>{canvas.onpointerdown({button:0,clientX:372,clientY:528,shiftKey,pointerId:1});canvas.onpointermove({clientX:372+x,clientY:528+y});canvas.onpointerup();};
+ const canvas=get('canvas');const drag=(x,y,shiftKey=false,button=0)=>{canvas.onpointerdown({button,clientX:372,clientY:528,shiftKey,pointerId:1});canvas.onpointermove({clientX:372+x,clientY:528+y});canvas.onpointerup();};
  return {window,port,api,get,drag,strokes};
 }
 test('XY drag moves placement, keeps machine table fixed, and clamps at table edge',()=>{
@@ -22,3 +22,4 @@ test('Placement requires Demo XY Idle after Home and yields to Shift pan',()=>{
   s.drag(32,-32,mode==='shift');assert.deepEqual(s.port.offset,[50,50,10],mode);
  }
 });
+test('Right drag pans the projected table without moving Demo work origin',()=>{for(const view of ['xy','iso']){const s=setup();s.api.setView(view);const before=s.strokes.slice(-12).map(JSON.parse);s.drag(32,20,false,2);const after=s.strokes.slice(-12).map(JSON.parse);assert.deepEqual(s.port.offset,[50,50,10]);before.forEach((edge,i)=>edge.forEach((p,j)=>{assert.ok(Math.abs(after[i][j][0]-p[0]-32)<1e-8);assert.ok(Math.abs(after[i][j][1]-p[1]-20)<1e-8);}));}});

@@ -1,1 +1,1 @@
-{"name":"cnc-path-viewer","version":"0.4.0","private":true,"scripts":{"start":"node server.cjs","test":"node --test --test-concurrency=1 parser.test.cjs grbl.test.cjs editor.test.cjs heightmap.test.cjs jog-queue.test.cjs demo-grbl.test.cjs placement.test.cjs"}}
+{"name":"cnc-path-viewer","version":"0.5.0","private":true,"scripts":{"start":"node server.cjs","test":"node --test --test-concurrency=1 parser.test.cjs grbl.test.cjs editor.test.cjs heightmap.test.cjs jog-queue.test.cjs demo-grbl.test.cjs placement.test.cjs theme.test.cjs run-display.test.cjs"}}

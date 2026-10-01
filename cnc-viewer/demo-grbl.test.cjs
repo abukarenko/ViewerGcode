@@ -2,6 +2,17 @@ const {test}=require('node:test');const assert=require('node:assert/strict');con
 function fixture(){const p=new DemoPort(),lines=[];p.send=s=>lines.push(s);p.options.speed=100;return {p,lines};}
 function finish(p){for(let i=0;i<10000&&p.job;i++)p.tick();assert.equal(p.job,null);}
 
+test('Dollar commands write persistent Demo memory, reject invalid values, and change status format and limits',()=>{
+ const data=new Map(),storage={getItem:k=>data.get(k),setItem:(k,v)=>data.set(k,v)},p=new DemoPort(storage),lines=[];p.send=s=>lines.push(s);
+ for(const code of ['$100=345.5','$120=80','$130=300','$10=0','$20=1']){p.command(code);assert.equal(lines.at(-1),'ok');}
+ p.command('$$');assert.ok(lines.includes('$100=345.5'));p.report();assert.match(lines.at(-1),/WPos:/);
+ for(const code of ['$100=0','$13=2','$23=8','$120=0','$999=1']){p.command(code);assert.equal(lines.at(-1),'error:3');}
+ const restored=new DemoPort(storage);assert.equal(restored.settings[100],345.5);assert.equal(restored.settings[120],80);assert.equal(restored.options.travel[0],300);
+ p.command('G0X400');assert.equal(p.state,'Alarm');assert.equal(p.job,null);assert.ok(lines.includes('ALARM:2'));
+});
+
+test('Probe pin remains active at contact and clears after retract',()=>{const {p}=fixture();p.command('G38.2Z-1F500');finish(p);assert.ok(p.pins().includes('P'));p.command('G91G0Z1');finish(p);assert.equal(p.pins().includes('P'),false);});
+
 test('CAM G43 H1 executes same-block Z and reports explicit zero-length simulation; G49 cancels',()=>{
  const {p,lines}=fixture();p.command('G92Z0');p.command('G017G21G49G80G90G91.1');p.command('M6T1');p.command('G43H1G0Z5.0000');finish(p);
  assert.equal(p.pos[2],20);assert.equal(p.toolLengthMode,43);assert.ok(lines.some(l=>l.includes('offset = 0 mm')));assert.equal(lines.some(l=>l.startsWith('error:')),false);
